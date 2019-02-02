@@ -22,6 +22,7 @@ insertion speed and moderate space usage.
 # Notes
 1. Maybe of much more slower speed than a oridinary tree-based ACA, specially for random generated keys.
 2. When inserting duplicated keys, only the last one will make sense.
+3. Inputing Sorted keys will be of (much) faster speed.
 
 [^1]: Jun‐Ichi Aoe, Katsushi Morimoto and Takashi Sato 'An Efficient Implementation of Trie Structures', September 1992.
 [^2]:  Aho, Alfred V.; Corasick, Margaret J. (June 1975). "Efficient string matching: An aid to bibliographic search". Communications of the ACM. 18 (6): 333&ndash, 340. doi:10.1145/360825.360855. MR 0371172.
@@ -36,26 +37,38 @@ struct AhoCorasickAutomaton{T <: Unsigned}
     arcs::Vector{Vector{UInt8}}
 end
 
-function AhoCorasickAutomaton{T}(keys::Vector{String}) where T
-    nkeys = T(length(keys))
+function AhoCorasickAutomaton{T}() where T
     base = T[1]
     from = T[1]
     ikey = T[0]
     deep = T[0]
     back = T[0]
     arcs = [UInt8[]]
-    obj = AhoCorasickAutomaton{T}(base, from, ikey, deep, back, arcs)
-    @showprogress 1 "Insert..." for i = T(1):nkeys
-        addkey!(obj, codeunits(keys[i]), i)
+    return AhoCorasickAutomaton{T}(base, from, ikey, deep, back, arcs)
+end
+
+function AhoCorasickAutomaton{T}(keys::Vector{String}; sort = false) where T
+    nkeys = T(length(keys))
+    obj = AhoCorasickAutomaton{T}()
+    if !sort || issorted(keys)
+        @showprogress 1 "Building ACA..." for i = T(1):nkeys
+            addkey!(obj, codeunits(keys[i]), i)
+        end
+    else
+        keys2 = Vector{Tuple{String, T}}(undef, nkeys)
+        for i = T(1):nkeys keys2[i] = (keys[i], i) end
+        Base.sort!(keys2)
+        @showprogress 1 "Building ACA..." for i = T(1):nkeys
+            addkey!(obj, codeunits(keys2[i][1]), keys2[i][2])
+        end
     end
     shrink!(obj)
     @inbounds fillback!(obj)
     validate(obj)
-    resize!(arcs, 0)
+    resize!(obj.arcs, 0)
     obj
 end
 AhoCorasickAutomaton(keys::Vector{String}) = AhoCorasickAutomaton{UInt32}(keys)
-
 
 function write(io::IO, obj::AhoCorasickAutomaton{T}) where T
     println(io, sizeof(T))
@@ -87,6 +100,10 @@ function ==(x::AhoCorasickAutomaton, y::AhoCorasickAutomaton)
 end
 
 function in(key::String, obj::AhoCorasickAutomaton{T})::Bool where T
+    return get(obj, key, T(0)) > 0
+end
+
+function get(obj::AhoCorasickAutomaton{T}, key::String, default::T)::T where T
     cur::T = 1
     n::T = length(obj.from)
     for c in codeunits(key)
@@ -94,10 +111,10 @@ function in(key::String, obj::AhoCorasickAutomaton{T})::Bool where T
         if (nxt <= n && obj.from[nxt] == cur)
             cur = nxt
         else
-            return false
+            return default
         end
     end
-    return obj.ikey[cur] > 0
+    return obj.ikey[cur]
 end
 
 function shrink!(obj::AhoCorasickAutomaton{T})::T where T
@@ -125,6 +142,7 @@ function enlarge!(obj::AhoCorasickAutomaton{T}, newlen::T)::T where T
         resize!(deep, newlen2)
         resize!(back, newlen2)
         resize!(arcs, newlen2)
+        # for i = oldlen + 1:newlen2 base[i] = i end
         base[oldlen + 1:newlen2] .= 0
         from[oldlen + 1:newlen2] .= 0
         ikey[oldlen + 1:newlen2] .= 0
@@ -153,7 +171,7 @@ function addkey!(obj::AhoCorasickAutomaton{T}, code::Base.CodeUnits{UInt8,String
             cur = nxt
         else # from[nxt] != cur
             push!(arcs[cur], c)
-            if length(arcs[cur]) <= length(arcs[from[nxt]]) || nxt == cur
+            if length(arcs[cur]) <= length(arcs[from[nxt]]) || from[nxt] == from[cur]
                 rebase!(obj, cur)
                 nxt = base[cur] + c
             else
@@ -198,7 +216,7 @@ end
 function findbase(obj::AhoCorasickAutomaton{T}, cur::T)::T where T
     base = obj.base; from = obj.from; deep = obj.deep; back = obj.back; ikey = obj.ikey; arcs = obj.arcs;
     n::T = length(from)
-    for b = max(cur, base[cur]):n
+    for b = max(cur + 1, base[cur]):n
         ok = true
         for arc in arcs[cur]
             @inbounds ok &= arc + b > n || from[arc + b] == 0
@@ -247,7 +265,8 @@ function validate(obj::AhoCorasickAutomaton{T})::Nothing where T
         cur = que[head]; head += 1;
         for arc in arcs[cur]
             chd = base[cur] + arc
-            @assert from[chd] == cur && back[chd] != chd && back[chd] != 0 string(chd, " fa=", cur, " from=", from[chd], " back=", back[chd])
+            # @assert from[chd] == cur && back[chd] != chd && back[chd] != 0 string(chd, " fa=", cur, " from=", from[chd], " back=", back[chd])
+            @assert from[chd] == cur string("cur=", cur, " chd=", chd, " from=", from[chd])
             que[tail] = chd; tail += 1;
         end
     end

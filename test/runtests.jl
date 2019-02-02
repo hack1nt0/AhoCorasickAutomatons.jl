@@ -1,6 +1,17 @@
 using Test, AhoCorasickAutomatons
 import Random
 
+# @testset "Brute test." begin
+#     keys = Vector{String}()
+#     open("../data/dict2") do io
+#         for w in eachline(io)
+#             push!(keys, w)
+#         end
+#     end
+#     Ti = UInt32
+#     obj = AhoCorasickAutomaton{Ti}(keys; sort = true)
+# end
+
 @testset "Inserted in, not inserted not in." begin
     keys1 = Vector{String}()
     for i = 1:10
