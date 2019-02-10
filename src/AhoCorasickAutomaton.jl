@@ -301,13 +301,14 @@ end
 
 """
     eachmatch(obj::AhoCorasickAutomaton{T}, text::AbstractString)::Vector{ACPosition{T}} where T
+    eachmatch(obj::AhoCorasickAutomaton{T}, text::DenseVector{T2})::Vector{ACPosition{T}} where T where T2
 
 Search for all matches of a AhoCorasickAutomaton *obj* in *text* and return a
 vector of the matches. Each matches is represented as a `ACPosition` type, which
 has 3 fields:
 
     1. s : start of match
-    2. t : stop of match
+    2. t : stop of match, using text[s, t] to get matched patterns
     3. i : index of the key in *obj*, which is the original insertion order of keys to *obj*
 
 The field *i* may be use as index of external property arrays, i.e., the AhoCorasickAutomaton
@@ -315,9 +316,12 @@ can act as a `Map{String, Any}`.
 
 """
 function eachmatch(obj::AhoCorasickAutomaton{T}, text::AbstractString)::Vector{ACPosition} where T
+    return eachmatch(obj, codeunits(text))
+end
+
+function eachmatch(obj::AhoCorasickAutomaton{T}, codes::DenseVector{T2})::Vector{ACPosition} where T where T2
     base = obj.base; from = obj.from; deep = obj.deep; back = obj.back; ikey = obj.ikey; arcs = obj.arcs;
     n = length(base)
-    codes = codeunits(text)
     root = cur = T(1)
     res = Vector{ACPosition}(undef, 0)
     for i = 1:length(codes)
@@ -338,17 +342,3 @@ function eachmatch(obj::AhoCorasickAutomaton{T}, text::AbstractString)::Vector{A
     end
     res
 end
-
-# using Random
-# function test(::Type{AhoCorasickAutomaton})
-#     while true
-#         keys = Vector{String}()
-#         for i = 1:2
-#             key = Random.randstring("AB", rand(0:2))
-#             push!(keys, key)
-#         end
-#         @show keys
-#         flush(stdout)
-#         obj = AhoCorasickAutomaton(keys)
-#     end
-# end
