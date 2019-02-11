@@ -1,5 +1,5 @@
 name = "AhoCorasickAutomatons"
-uuid = "99525508-17e6-11e9-3f24-87416349f7b0"
+uuid = "ada18822-018e-50a1-bfcc-5047cda99b0e"
 authors = ["dy <jealousing@gmail.com>"]
 version = "0.2.0"
 
