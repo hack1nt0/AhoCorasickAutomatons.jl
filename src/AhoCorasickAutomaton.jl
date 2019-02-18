@@ -296,7 +296,7 @@ struct ACPosition
 end
 
 function isless(x::ACPosition, y::ACPosition)::Bool
-    return x.s < y.s || x.s == y.s && x.t < y.t || x.s == y.s && x.t == y.t && x.i == y.i
+    return x.s < y.s || x.s == y.s && x.t < y.t || x.s == y.s && x.t == y.t && x.i < y.i
 end
 
 """
