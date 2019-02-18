@@ -1,7 +1,7 @@
 name = "AhoCorasickAutomatons"
 uuid = "ada18822-018e-50a1-bfcc-5047cda99b0e"
 authors = ["dy <jealousing@gmail.com>"]
-version = "0.2.0"
+version = "0.2.1"
 
 [deps]
 Markdown = "d6f4376e-aef5-505a-96c1-9c027394607a"
