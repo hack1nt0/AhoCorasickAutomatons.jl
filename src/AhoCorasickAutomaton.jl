@@ -1,7 +1,11 @@
 """
-    AhoCorasickAutomaton{T <: Unsigned}
-            s.t.
-    typemax(T) >= maximum(nodes)
+    AhoCorasickAutomaton{T}(keys::Vector{Pair{String, Ti}}; sort = false) where {T, Ti}
+    AhoCorasickAutomaton{T}(keys::AbstractDict{String, Ti}; sort = false) where {T, Ti}
+    AhoCorasickAutomaton{T}(keys::Vector{String}; sort = false) where T
+    AhoCorasickAutomaton(keys::Vector{String}; sort = false) = AhoCorasickAutomaton{UInt32}(keys; sort = sort)
+    AhoCorasickAutomaton(keys::Vector{Pair{String, Ti}}; sort = false) where Ti = AhoCorasickAutomaton{UInt32}(keys; sort = sort)
+
+    T s.t. typemax(T) >= length(keys)
 
 A 2-Array implementation of Aho–Corasick automaton(ACA)[^1], Most used as an engine to mine a long text string,
 to get all occurences of substrings interested in the text. ACA is also adequate for unicode strings
@@ -16,19 +20,66 @@ patterns finding[^2]. This particular implementation use no-decreasing `base`, i
 This choice make it suitable for large-size key set of not-very-long keys, with faster
 insertion speed and moderate space usage.
 
-# Examples
-`using Pkg; less(joinpath(Pkg.dir("AhoCorasickAutomatons"), "test", "runtests.jl"))`
-
 # Notes
-1. Maybe of much more slower speed than a oridinary tree-based ACA, specially for random generated keys.
+1. Maybe of slower speed than a oridinary tree-based ACA, specially for random generated keys.
 2. When inserting duplicated keys, only the last one will make sense.
-3. Inputing Sorted keys will be of (much) faster speed.
+3. Inputing Sorted keys will be of (much) faster speed. Just turn the *sort* option on!
 
+# Examples
+```
+julia> v = ["A", "B"]; obj1 = AhoCorasickAutomaton{UInt8}(v; sort = true) # constructor
+type  AhoCorasickAutomaton{UInt8}
+––––– –––––––––––––––––––––––––––
+keys                            2
+nodes                          67
+nnz                             3
+size                    623 bytes
+
+julia> for key in v @assert key ∈ obj1 end
+
+julia> @assert sort!(keys(obj1)) == v
+
+julia> d = Dict("A" => 1, "B" => 2); obj2 = AhoCorasickAutomaton{UInt8}(d; sort = true); obj1 == obj2 # constructor
+true
+
+julia> obj3 = AhoCorasickAutomaton{UInt8}(collect(d); sort = true); obj2 == obj3 # constructor
+true
+
+julia> s = "AABDB"; matches = eachmatch(obj1, s) # eachmatch
+4-element Array{ACMatch,1}:
+ ACMatch(1, 1, 1)
+ ACMatch(2, 2, 1)
+ ACMatch(3, 3, 2)
+ ACMatch(5, 5, 2)
+
+julia> matches == eachmatch(obj1, codeunits(s)) # eachmatch
+true
+
+julia> map(x -> s[x], matches) # getindex
+4-element Array{String,1}:
+ "A"
+ "A"
+ "B"
+ "B"
+
+julia> ss = collect(codeunits(s)); foreach(x -> ss[x] = ss[x], matches); String(ss) == s # setindex!
+true
+
+julia> io = IOBuffer(); write(io, obj1); seek(io, 0); obj11 = read(io, AhoCorasickAutomaton); obj1 == obj11 # read & write
+true
+```
+For more : `using Pkg; less(joinpath(Pkg.dir("AhoCorasickAutomatons"), "test", "runtests.jl"))`
+
+# See also
+*ACMatch*, *eachmatch*, *getindex*, *setindex!*,
+*in*, *get*, *length*, *read*, *write*, *collect*, *keys*, *values*.
+
+# References
 [^1]: Jun‐Ichi Aoe, Katsushi Morimoto and Takashi Sato 'An Efficient Implementation of Trie Structures', September 1992.
 [^2]:  Aho, Alfred V.; Corasick, Margaret J. (June 1975). "Efficient string matching: An aid to bibliographic search". Communications of the ACM. 18 (6): 333&ndash, 340. doi:10.1145/360825.360855. MR 0371172.
 
 """
-struct AhoCorasickAutomaton{T <: Unsigned}
+struct AhoCorasickAutomaton{T <: Integer}
     base::Vector{T}
     from::Vector{T}
     ikey::Vector{T}
@@ -47,19 +98,17 @@ function AhoCorasickAutomaton{T}() where T
     return AhoCorasickAutomaton{T}(base, from, ikey, deep, back, arcs)
 end
 
-function AhoCorasickAutomaton{T}(keys::Vector{String}; sort = false) where T
+function AhoCorasickAutomaton{T}(keys::Vector{Pair{String, Ti}}; sort = false) where {T, Ti}
     nkeys = T(length(keys))
     obj = AhoCorasickAutomaton{T}()
     if !sort || issorted(keys)
         @showprogress 1 "Building ACA..." for i = T(1):nkeys
-            addkey!(obj, codeunits(keys[i]), i)
+            addkey!(obj, codeunits(keys[i][1]), T(keys[i][2]))
         end
     else
-        keys2 = Vector{Tuple{String, T}}(undef, nkeys)
-        for i = T(1):nkeys keys2[i] = (keys[i], i) end
-        Base.sort!(keys2)
+        Base.sort!(keys)
         @showprogress 1 "Building ACA..." for i = T(1):nkeys
-            addkey!(obj, codeunits(keys2[i][1]), keys2[i][2])
+            addkey!(obj, codeunits(keys[i][1]), T(keys[i][2]))
         end
     end
     shrink!(obj)
@@ -68,30 +117,62 @@ function AhoCorasickAutomaton{T}(keys::Vector{String}; sort = false) where T
     resize!(obj.arcs, 0)
     obj
 end
-AhoCorasickAutomaton(keys::Vector{String}) = AhoCorasickAutomaton{UInt32}(keys)
+
+function AhoCorasickAutomaton{T}(keys::AbstractDict{String, Ti}; sort = false) where {T, Ti}
+    nkeys = T(length(keys))
+    if !sort || issorted(keys)
+        obj = AhoCorasickAutomaton{T}()
+        @showprogress 1 "Building ACA..." for (key, id) in keys
+            addkey!(obj, codeunits(key), T(id))
+        end
+        return obj
+    else
+        return AhoCorasickAutomaton{T}(collect(keys); sort = sort)
+    end
+end
+
+function AhoCorasickAutomaton{T}(keys::Vector{String}; sort = false) where T
+    keys2 = Vector{Pair{String, T}}(undef, length(keys))
+    for (i, key) in enumerate(keys) keys2[i] = key => T(i) end
+    return AhoCorasickAutomaton{T}(keys2; sort = sort)
+end
+
+AhoCorasickAutomaton(keys::Vector{String}; sort = false) = AhoCorasickAutomaton{UInt32}(keys; sort = sort)
+AhoCorasickAutomaton(keys::Vector{Pair{String, Ti}}; sort = false) where Ti = AhoCorasickAutomaton{UInt32}(keys; sort = sort)
 
 function write(io::IO, obj::AhoCorasickAutomaton{T}) where T
-    println(io, sizeof(T))
-    nnodes = length(obj.from)
-    println(io, nnodes)
-    nbytes = write(io, obj.base) +
-            write(io, obj.from) +
-            write(io, obj.ikey) +
-            write(io, obj.deep) +
-            write(io, obj.back) + 2 + length(string(sizeof(T), nnodes))
-    return nbytes;
+    nbyte = 0
+    if T isa Unsigned
+        nbyte += write(io, +1)
+    else
+        nbyte += write(io, -1)
+    end
+    nbyte += write(io, sizeof(T))
+    nbyte += write(io, length(obj.from))
+    nbyte +=
+    write(io, obj.base) +
+    write(io, obj.from) +
+    write(io, obj.ikey) +
+    write(io, obj.deep) +
+    write(io, obj.back)
+    return nbyte;
 end
+
 function read(io::IO, ::Type{AhoCorasickAutomaton})
-    nbytes = parse(UInt, readline(io))
-    Ts = [UInt8, UInt16, UInt32, UInt64]
-    T = Ts[findfirst(x -> sizeof(x) == nbytes, Ts)]
-    # @assert actT == T
-    nnodes = parse(UInt, readline(io))
-    base = reinterpret(T, read(io, nnodes * sizeof(T)))
-    from = reinterpret(T, read(io, nnodes * sizeof(T)))
-    ikey = reinterpret(T, read(io, nnodes * sizeof(T)))
-    deep = reinterpret(T, read(io, nnodes * sizeof(T)))
-    back = reinterpret(T, read(io, nnodes * sizeof(T)))
+    signT = read(io, Int)
+    byteT = read(io, Int)
+    T = Int
+    if signT > 0
+        T = filter(x -> sizeof(x) == byteT, [UInt8, UInt16, UInt32, UInt64])[1]
+    else
+        T = filter(x -> sizeof(x) == byteT, [Int8, Int16, Int32, Int64])[1]
+    end
+    nnode = read(io, Int)
+    base = reinterpret(T, read(io, nnode * sizeof(T)))
+    from = reinterpret(T, read(io, nnode * sizeof(T)))
+    ikey = reinterpret(T, read(io, nnode * sizeof(T)))
+    deep = reinterpret(T, read(io, nnode * sizeof(T)))
+    back = reinterpret(T, read(io, nnode * sizeof(T)))
     return AhoCorasickAutomaton{T}(base, from, ikey, deep, back, [UInt8[]])
 end
 
@@ -99,14 +180,18 @@ function ==(x::AhoCorasickAutomaton, y::AhoCorasickAutomaton)
     return x.base == y.base && x.from == y.from && x.ikey == y.ikey && x.deep == y.deep && x.back == y.back
 end
 
-function in(key::String, obj::AhoCorasickAutomaton{T})::Bool where T
+function in(key::AbstractString, obj::AhoCorasickAutomaton{T})::Bool where T
     return get(obj, key, T(0)) > 0
 end
 
-function get(obj::AhoCorasickAutomaton{T}, key::String, default::T)::T where T
+function in(key::DenseVector{UInt8}, obj::AhoCorasickAutomaton{T})::Bool where T
+    return get(obj, key, T(0)) > 0
+end
+
+function get(obj::AhoCorasickAutomaton{T}, key::DenseVector{UInt8}, default::T)::T where T
     cur::T = 1
     n::T = length(obj.from)
-    for c in codeunits(key)
+    for c in key
         nxt = obj.base[cur] + c
         if (nxt <= n && obj.from[nxt] == cur)
             cur = nxt
@@ -115,6 +200,41 @@ function get(obj::AhoCorasickAutomaton{T}, key::String, default::T)::T where T
         end
     end
     return obj.ikey[cur]
+end
+
+function get(obj::AhoCorasickAutomaton{T}, key::AbstractString, default::T)::T where T
+    return get(obj, codeunits(key), default)
+end
+
+function length(obj::AhoCorasickAutomaton{T}) where T
+    return count(!iszero, obj.ikey)
+end
+
+function collect(obj::AhoCorasickAutomaton{T}) where T
+    base = obj.base
+    from = obj.from
+    ikey = obj.ikey
+    res = Pair{String, Int}[]
+    for i = 1:length(ikey)
+        if ikey[i] == 0 continue end
+        codes = UInt8[]
+        j = i
+        while j > 1
+            c = j - base[from[j]]
+            push!(codes, c)
+            j = from[j]
+        end
+        push!(res, String(reverse!(codes)) => ikey[i])
+    end
+    return res
+end
+
+function keys(obj::AhoCorasickAutomaton{T}) where T
+    return map(first, collect(obj))
+end
+
+function values(obj::AhoCorasickAutomaton{T}) where T
+    return filter(!iszero, obj.ikey)
 end
 
 function shrink!(obj::AhoCorasickAutomaton{T})::T where T
@@ -275,6 +395,7 @@ end
 
 function display(obj::AhoCorasickAutomaton{T}) where T
     rows = Any[["type", typeof(obj)],
+                ["keys", length(obj)],
                 ["nodes", length(obj.from)],
                 ["nnz", count(!iszero, obj.from)],
                 ["size", format_bytes(summarysize(obj))]
@@ -287,25 +408,7 @@ function print(io::IO, obj::AhoCorasickAutomaton{T}) where T
 end
 
 """
-See ?eachmatch
-"""
-struct ACPosition
-    s::Int
-    t::Int
-    i::Int
-end
-
-function isless(x::ACPosition, y::ACPosition)::Bool
-    return x.s < y.s || x.s == y.s && x.t < y.t || x.s == y.s && x.t == y.t && x.i < y.i
-end
-
-"""
-    eachmatch(obj::AhoCorasickAutomaton{T}, text::AbstractString)::Vector{ACPosition{T}} where T
-    eachmatch(obj::AhoCorasickAutomaton{T}, text::DenseVector{T2})::Vector{ACPosition{T}} where T where T2
-
-Search for all matches of a AhoCorasickAutomaton *obj* in *text* and return a
-vector of the matches. Each matches is represented as a `ACPosition` type, which
-has 3 fields:
+ACMatch has 3 fields:
 
     1. s : start of match
     2. t : stop of match, using text[s, t] to get matched patterns
@@ -314,16 +417,40 @@ has 3 fields:
 The field *i* may be use as index of external property arrays, i.e., the AhoCorasickAutomaton
 can act as a `Map{String, Any}`.
 
+# See also
+*eachmatch*, *getindex*, *setindex!*
 """
-function eachmatch(obj::AhoCorasickAutomaton{T}, text::AbstractString)::Vector{ACPosition} where T
+struct ACMatch
+    s::Int
+    t::Int
+    i::Int
+end
+
+length(pos::ACMatch) = pos.t - pos.s + 1
+
+function isless(x::ACMatch, y::ACMatch)::Bool
+    return x.s < y.s || x.s == y.s && x.t < y.t || x.s == y.s && x.t == y.t && x.i < y.i
+end
+
+"""
+    eachmatch(obj::AhoCorasickAutomaton{T}, text::AbstractString)::Vector{ACMatch} where T
+    eachmatch(obj::AhoCorasickAutomaton{T}, text::DenseVector{T2})::Vector{ACMatch} where T where T2
+
+Search for all matches of a AhoCorasickAutomaton *obj* in *text* and return a
+vector of the matches. Each match is represented as a `ACMatch` type.
+
+# See also
+*ACMatch*
+"""
+function eachmatch(obj::AhoCorasickAutomaton{T}, text::AbstractString)::Vector{ACMatch} where T
     return eachmatch(obj, codeunits(text))
 end
 
-function eachmatch(obj::AhoCorasickAutomaton{T}, codes::DenseVector{T2})::Vector{ACPosition} where T where T2
+function eachmatch(obj::AhoCorasickAutomaton{T}, codes::DenseVector{UInt8})::Vector{ACMatch} where T
     base = obj.base; from = obj.from; deep = obj.deep; back = obj.back; ikey = obj.ikey; arcs = obj.arcs;
     n = length(base)
     root = cur = T(1)
-    res = Vector{ACPosition}(undef, 0)
+    res = Vector{ACMatch}(undef, 0)
     for i = 1:length(codes)
         c = codes[i]
         while cur != root && (base[cur] + c > n || from[base[cur] + c ] != cur)
@@ -335,10 +462,45 @@ function eachmatch(obj::AhoCorasickAutomaton{T}, codes::DenseVector{T2})::Vector
         # if (ikey[cur] > 0)
             node = cur
             while node != root
-                if (ikey[node] > 0) push!(res, ACPosition(i - deep[node] + 1, i, ikey[node])) end
+                if (ikey[node] > 0) push!(res, ACMatch(i - deep[node] + 1, i, ikey[node])) end
                 node = back[node]
             end
         # end
     end
     res
+end
+
+"""
+    getindex(xs::AbstractString, pos::ACMatch)
+
+Retrieve a substring of *xs* specified by *pos*.
+# See also
+*ACMatch*
+"""
+function getindex(xs::AbstractString, pos::ACMatch)
+    return xs[pos.s:pos.t]
+end
+
+"""
+    getindex(xs::DenseVector{UInt8}, pos::ACMatch)
+
+Retrieve a sub-codeunits of *xs* specified by *pos*.
+# See also
+*ACMatch*
+"""
+function getindex(xs::DenseVector{UInt8}, pos::ACMatch)
+    return xs[pos.s:pos.t]
+end
+
+"""
+    setindex!(xs::DenseVector{UInt8}, sub::DenseVector{UInt8}, pos::ACMatch)
+
+Set values of region specified by *pos* of *xs* to *sub*.
+# Note
+ @assert length(sub) == length(pos)
+# See also
+*ACMatch*
+"""
+function setindex!(xs::DenseVector{UInt8}, sub::DenseVector{UInt8}, pos::ACMatch)
+    return xs[pos.s:pos.t] = sub
 end
